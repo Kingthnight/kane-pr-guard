@@ -15,7 +15,10 @@ concurrency:
 jobs:
   guard:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Seven flows, each capped at 10 minutes by the guard. The step limit
+    # fails the job if the process is stuck; the job limit is the backstop.
+    # A cancelled job is not a green check: guard-finished fails closed.
+    timeout-minutes: 80
     steps:
       - name: Check out the pull request
         uses: actions/checkout@v4
@@ -46,6 +49,8 @@ jobs:
           PR_HEAD_REF: ${{ github.head_ref }}
           KANE_MAX_ATTEMPTS: ${{ vars.KANE_MAX_ATTEMPTS }}
           KANE_FIX_AGENT: ${{ vars.KANE_FIX_AGENT }}
+          KANE_FIX_TOKEN: ${{ secrets.KANE_FIX_TOKEN }}
+        timeout-minutes: 75
         run: |
           export PATH="$(npm prefix -g)/bin:$PATH"
           npm run guard
@@ -63,3 +68,14 @@ jobs:
             kane-fix-request.md
             results/
             .testmuai/evidence/
+
+  guard-finished:
+    needs: guard
+    if: always() && needs.guard.result == 'cancelled'
+    runs-on: ubuntu-latest
+    steps:
+      - name: A cancelled guard is not a pass
+        run: |
+          echo "The Kane PR Guard job was cancelled."
+          echo "A hang that Actions cancels must not look like a green check."
+          exit 1

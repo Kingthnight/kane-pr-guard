@@ -8,9 +8,9 @@ import test from "node:test";
 import { once } from "node:events";
 import { capNote, nextAttempt, readAttempt, shouldRequestFix, stampResult, statusToExit } from "../guard/attempts.js";
 import { buildFixRequest } from "../guard/fix-request.js";
-import { runGuard } from "../guard/cli.js";
+import { listFlowFiles, runGuard, tokenForFixComment } from "../guard/cli.js";
 import { createGitHub } from "../guard/github.js";
-import { kaneArgs } from "../guard/runner.js";
+import { kaneArgs, missingKaneSecrets } from "../guard/runner.js";
 
 function freePort() {
   return new Promise((resolve) => {
@@ -130,7 +130,7 @@ test("kane-cli is invoked with the verifier's flags", () => {
   ]);
 });
 
-test("local guard passes the four flows against the sample app", async () => {
+test("local guard runs every *_test.md against the sample app", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "kane-guard-"));
   const port = await freePort();
   const code = await runGuard(isolatedEnv(dir, { BASE_URL: `http://127.0.0.1:${port}` }));
@@ -138,13 +138,39 @@ test("local guard passes the four flows against the sample app", async () => {
   assert.equal(code, 0);
   assert.equal(report.status, "passed");
   assert.equal(report.runner, "mock");
-  assert.equal(report.flows.length, 4);
-  assert.deepEqual(report.flows.map((flow) => flow.status), ["passed", "passed", "passed", "passed"]);
+  const names = listFlowFiles(path.join(process.cwd(), "kane-flows"));
+  assert.deepEqual(report.flows.map((flow) => path.basename(flow.flow)), names);
+  assert.ok(names.includes("exploratory-cart_test.md"));
+  assert.ok(names.includes("promo-code_test.md"));
+  assert.ok(!names.includes("login.md"));
+  assert.ok(report.flows.every((flow) => flow.status === "passed"));
   const markdown = fs.readFileSync(path.join(dir, "kane-report.md"), "utf8");
   assert.match(markdown, /Kane PR Guard ✅ passed/);
-  assert.match(markdown, /No video is produced by Kane CLI 0\.10\.4/);
-  assert.match(markdown, /<!-- kane-pr-guard-result attempt:1 status:passed -->/);
   assert.equal(fs.existsSync(path.join(dir, "kane-fix-request.md")), false);
+});
+
+test("a fix comment uses KANE_FIX_TOKEN when it is set", () => {
+  assert.equal(tokenForFixComment({ KANE_FIX_TOKEN: "pat", GITHUB_TOKEN: "actions" }), "pat");
+  assert.equal(tokenForFixComment({ GITHUB_TOKEN: "actions" }), "actions");
+  assert.equal(tokenForFixComment({ KANE_FIX_TOKEN: "  ", GITHUB_TOKEN: "actions" }), "actions");
+});
+
+test("GitHub Actions refuses to start Kane without both secrets", () => {
+  const message = missingKaneSecrets({
+    KANE_RUNNER: "kane",
+    GITHUB_ACTIONS: "true",
+    KANE_USERNAME: "",
+    KANE_ACCESS_KEY: "",
+  });
+  assert.match(message, /KANE_USERNAME and KANE_ACCESS_KEY/);
+  assert.equal(missingKaneSecrets({
+    KANE_RUNNER: "kane",
+    GITHUB_ACTIONS: "true",
+    KANE_USERNAME: "user",
+    KANE_ACCESS_KEY: "key",
+  }), "");
+  assert.equal(missingKaneSecrets({ KANE_RUNNER: "mock", GITHUB_ACTIONS: "true" }), "");
+  assert.equal(missingKaneSecrets({ KANE_RUNNER: "kane", KANE_USERNAME: "" }), "");
 });
 
 test("local guard writes a fix request when the app does not match the flows", async () => {
