@@ -53,7 +53,7 @@ export function createApp() {
     const password = String(req.body.password || "");
     const valid = email.toLowerCase() === SEEDED_USER.email && password === SEEDED_USER.password;
     if (!valid) {
-      send(res, 401, renderLogin("Incorrect credentials. The password you entered is incorrect."));
+      send(res, 401, renderLogin("Incorrect credentials. The password you entered is incorrect.", email));
       return;
     }
     const sid = crypto.randomBytes(16).toString("hex");
@@ -237,7 +237,7 @@ function cartCount(session) {
   return session.cart.reduce((total, item) => total + item.qty, 0);
 }
 
-function renderLogin(error) {
+function renderLogin(error, email = "") {
   const alert = error
     ? `<p class="alert" role="alert" data-testid="login-error">${escapeHtml(error)}</p>`
     : "";
@@ -247,7 +247,7 @@ function renderLogin(error) {
     ${alert}
     <form class="stack card" method="post" action="/login" data-testid="login-form">
       <label for="email">Email
-        <input id="email" name="email" type="email" autocomplete="username" data-testid="login-email" value="">
+        <input id="email" name="email" type="email" autocomplete="username" data-testid="login-email" value="${escapeHtml(email)}">
       </label>
       <label for="password">Password
         <input id="password" name="password" type="password" autocomplete="current-password" data-testid="login-password">

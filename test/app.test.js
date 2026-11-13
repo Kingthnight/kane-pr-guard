@@ -63,6 +63,7 @@ test("wrong password stays off the dashboard and shows an error", async () => {
     assert.equal(failed.status, 401);
     assert.match(failed.text, /data-testid="login-error"/);
     assert.match(failed.text, /password you entered is incorrect/i);
+    assert.match(failed.text, /value="test@example.com"/);
     assert.match(failed.text, /credentials/i);
     assert.doesNotMatch(failed.text, /data-testid="dashboard-heading"/);
     assert.doesNotMatch(failed.text, /data-testid="order-number"/);
