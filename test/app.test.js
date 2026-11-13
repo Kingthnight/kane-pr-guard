@@ -394,6 +394,165 @@ test("checkout and the confirmation show the same discounted total", async () =>
   }
 });
 
+function assertFreeShipping(text, total) {
+  assert.match(text, /data-testid="free-shipping">Free shipping</);
+  assert.match(text, /data-testid="shipping-amount">\$0\.00</);
+  assert.match(text, new RegExp(`data-testid="total-due">${total.replace("$", "\\$")}<`));
+  assert.doesNotMatch(text, /\$5\.99/);
+  assert.doesNotMatch(text, /data-testid="free-shipping-hint"/);
+  assert.doesNotMatch(text, /Add \$/);
+}
+
+function assertPaidShipping(text, { subtotal, hint, total, discount }) {
+  assert.match(text, new RegExp(`data-testid="subtotal">${subtotal.replace("$", "\\$")}<`));
+  assert.match(text, /data-testid="shipping-amount">\$5\.99</);
+  assert.match(text, new RegExp(`data-testid="free-shipping-hint">Add ${hint.replace("$", "\\$")} more for free shipping.<`));
+  assert.match(text, new RegExp(`data-testid="total-due">${total.replace("$", "\\$")}<`));
+  assert.doesNotMatch(text, /data-testid="free-shipping"/);
+  assert.doesNotMatch(text, /\$0\.00/);
+  if (discount) {
+    assert.match(text, new RegExp(`data-testid="discount-amount">${discount.replace("$", "\\$")}<`));
+  }
+}
+
+test("catalog lists the USB-C Cable and Desk Pad at their fixture prices", async () => {
+  const app = await start();
+  const request = client(app.base);
+  try {
+    await signIn(request);
+    const products = await follow(request, "GET", "/products");
+    assert.match(products.text, /data-testid="product-usb-cable"/);
+    assert.match(products.text, /USB-C Cable/);
+    assert.match(products.text, /\$49\.99/);
+    assert.match(products.text, /data-testid="add-to-cart-usb-cable"/);
+    assert.match(products.text, /data-testid="product-desk-pad"/);
+    assert.match(products.text, /Desk Pad/);
+    assert.match(products.text, /\$50\.00/);
+    assert.match(products.text, /data-testid="add-to-cart-desk-pad"/);
+    assert.match(products.text, /Wireless Headphones/);
+    assert.match(products.text, /Mechanical Keyboard/);
+  } finally {
+    await app.close();
+  }
+});
+
+test("an empty cart shows a readable Shipping and Total of $0.00", async () => {
+  const app = await start();
+  const request = client(app.base);
+  try {
+    await signIn(request);
+    const cart = await follow(request, "GET", "/cart");
+    assert.match(cart.text, /data-testid="cart-empty"/);
+    assert.match(cart.text, /Your cart is empty/);
+    assert.match(cart.text, /data-testid="cart-badge">0</);
+    assert.match(cart.text, />Shipping</);
+    assert.match(cart.text, /data-testid="shipping-amount">\$0\.00</);
+    assert.match(cart.text, />Total due</);
+    assert.match(cart.text, /data-testid="total-due">\$0\.00</);
+    assert.doesNotMatch(cart.text, /\$5\.99/);
+    assert.doesNotMatch(cart.text, /data-testid="free-shipping-hint"/);
+    assert.doesNotMatch(cart.text, /Add \$/);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a cart over $50 shows free shipping on the cart, checkout, and confirmation", async () => {
+  const app = await start();
+  const request = client(app.base);
+  try {
+    await signIn(request);
+    await follow(request, "POST", "/cart/items", { sku: "headphones" });
+    const cart = await follow(request, "GET", "/cart");
+    assert.match(cart.text, /data-testid="subtotal">\$79\.00</);
+    assertFreeShipping(cart.text, "$79.00");
+
+    const checkout = await follow(request, "GET", "/checkout");
+    assert.match(checkout.text, /data-testid="subtotal">\$79\.00</);
+    assertFreeShipping(checkout.text, "$79.00");
+
+    const confirmation = await follow(request, "POST", "/checkout", SHIPPING);
+    assert.match(confirmation.text, /data-testid="order-confirmation"/);
+    assert.match(confirmation.text, /data-testid="order-number">KN-1001</);
+    assert.match(confirmation.text, /data-testid="subtotal">\$79\.00</);
+    assertFreeShipping(confirmation.text, "$79.00");
+  } finally {
+    await app.close();
+  }
+});
+
+test("USB-C Cable is just under the threshold and Desk Pad is exactly free until SAVE10", async () => {
+  const app = await start();
+  const request = client(app.base);
+  try {
+    await signIn(request);
+    await follow(request, "POST", "/cart/items", { sku: "usb-cable" });
+    const cable = await follow(request, "GET", "/cart");
+    assertPaidShipping(cable.text, { subtotal: "$49.99", hint: "$0.01", total: "$55.98" });
+
+    await follow(request, "POST", "/cart/items/remove", { sku: "usb-cable" });
+    await follow(request, "POST", "/cart/items", { sku: "desk-pad" });
+    const pad = await follow(request, "GET", "/cart");
+    assert.match(pad.text, /data-testid="subtotal">\$50\.00</);
+    assertFreeShipping(pad.text, "$50.00");
+
+    const discounted = await follow(request, "POST", "/cart/promo", { promo: "SAVE10" });
+    assert.match(discounted.text, /data-testid="applied-promo">SAVE10</);
+    assert.match(discounted.text, /data-testid="discount-amount">\$5\.00</);
+    assert.match(discounted.text, /data-testid="after-discount">\$45\.00</);
+    assertPaidShipping(discounted.text, { subtotal: "$50.00", hint: "$5.00", total: "$50.99", discount: "$5.00" });
+
+    const checkout = await follow(request, "GET", "/checkout");
+    assert.match(checkout.text, /data-testid="after-discount">\$45\.00</);
+    assertPaidShipping(checkout.text, { subtotal: "$50.00", hint: "$5.00", total: "$50.99", discount: "$5.00" });
+
+    const confirmation = await follow(request, "POST", "/checkout", SHIPPING);
+    assert.match(confirmation.text, /data-testid="order-number">KN-1001</);
+    assert.match(confirmation.text, /data-testid="applied-promo">SAVE10</);
+    assert.match(confirmation.text, /data-testid="after-discount">\$45\.00</);
+    assertPaidShipping(confirmation.text, { subtotal: "$50.00", hint: "$5.00", total: "$50.99", discount: "$5.00" });
+  } finally {
+    await app.close();
+  }
+});
+
+test("removing the Desk Pad drops a free-shipping cart under the threshold", async () => {
+  const app = await start();
+  const request = client(app.base);
+  try {
+    await signIn(request);
+    await follow(request, "POST", "/cart/items", { sku: "usb-cable" });
+    await follow(request, "POST", "/cart/items", { sku: "desk-pad" });
+    const both = await follow(request, "GET", "/cart");
+    assert.match(both.text, /data-testid="subtotal">\$99\.99</);
+    assertFreeShipping(both.text, "$99.99");
+
+    const cable = await follow(request, "POST", "/cart/items/remove", { sku: "desk-pad" });
+    assert.match(cable.text, /USB-C Cable/);
+    assert.doesNotMatch(cable.text, /Desk Pad/);
+    assertPaidShipping(cable.text, { subtotal: "$49.99", hint: "$0.01", total: "$55.98" });
+  } finally {
+    await app.close();
+  }
+});
+
+test("SAVE10 on headphones stays free because $71.10 is still over $50", async () => {
+  const app = await start();
+  const request = client(app.base);
+  try {
+    await signIn(request);
+    await follow(request, "POST", "/cart/items", { sku: "headphones" });
+    const cart = await follow(request, "POST", "/cart/promo", { promo: "SAVE10" });
+    assert.match(cart.text, /data-testid="subtotal">\$79\.00</);
+    assert.match(cart.text, /data-testid="discount-amount">\$7\.90</);
+    assert.match(cart.text, /data-testid="after-discount">\$71\.10</);
+    assertFreeShipping(cart.text, "$71.10");
+    assert.doesNotMatch(cart.text, /\$77\.09/);
+  } finally {
+    await app.close();
+  }
+});
+
 test("items can be removed until the cart is empty", async () => {
   const app = await start();
   const request = client(app.base);

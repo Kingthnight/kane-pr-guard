@@ -84,6 +84,7 @@ in place. Removing one item while others remain keeps the code and
 recalculates. Emptying the cart drops it, so the next item is full price
 until the code is applied again. Checkout and the order confirmation
 show the subtotal, the discount, and the total due.
+Shipping is a flat $5.99, and free when the merchandise total after any promo discount is $50.00 or more.
 
 ## Run the guard locally
 

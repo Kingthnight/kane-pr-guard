@@ -43,7 +43,9 @@ export function createGitHub({ token, repository, prNumber, fetchImpl = fetch })
 
   async function upsert(marker, body) {
     const comments = await listComments();
-    const existing = [...comments].reverse().find((comment) => comment.body && comment.body.includes(marker));
+    // Match the marker anywhere in the body. The fix request starts with the
+    // @cursor mention, and <!-- kane-pr-guard-fix --> is kept later in the body.
+    const existing = [...comments].reverse().find((comment) => commentHasMarker(comment.body, marker));
     if (existing) {
       return request(`/repos/${owner}/${repo}/issues/comments/${existing.id}`, {
         method: "PATCH",
@@ -57,4 +59,8 @@ export function createGitHub({ token, repository, prNumber, fetchImpl = fetch })
   }
 
   return { listComments, upsert };
+}
+
+export function commentHasMarker(body, marker) {
+  return Boolean(body && String(body).includes(marker));
 }

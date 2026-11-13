@@ -3,10 +3,12 @@ import test from "node:test";
 import {
   applyPromo,
   formatCents,
+  FREE_SHIPPING_THRESHOLD_CENTS,
   merchandiseSubtotalCents,
   percentOffCents,
   quoteCart,
   retainedPromo,
+  SHIPPING_FEE_CENTS,
 } from "../app/pricing.js";
 
 const headphones = { sku: "headphones", name: "Wireless Headphones", price: "$79.00", qty: 1 };
@@ -104,6 +106,97 @@ test("emptying the cart drops SAVE10 so the next item is full price", () => {
   assert.equal(fresh.discountCents, 0);
   assert.equal(formatCents(fresh.subtotalCents), "$79.00");
   assert.equal(formatCents(fresh.totalCents), "$79.00");
+});
+
+test("shipping is $5.99 just under $50, free at $50, and free above $50", () => {
+  assert.equal(FREE_SHIPPING_THRESHOLD_CENTS, 5000);
+  assert.equal(SHIPPING_FEE_CENTS, 599);
+
+  const under = quoteCart([{ price: "$49.99", qty: 1 }]);
+  assert.equal(under.subtotalCents, 4999);
+  assert.equal(under.discountCents, 0);
+  assert.equal(under.totalCents, 4999);
+  assert.equal(under.freeShipping, false);
+  assert.equal(under.shippingCents, SHIPPING_FEE_CENTS);
+  assert.equal(under.remainingUntilFreeShippingCents, 1);
+  assert.equal(formatCents(under.remainingUntilFreeShippingCents), "$0.01");
+  assert.equal(under.orderTotalCents, 5598);
+  assert.equal(formatCents(under.orderTotalCents), "$55.98");
+
+  const exact = quoteCart([{ price: "$50.00", qty: 1 }]);
+  assert.equal(exact.totalCents, 5000);
+  assert.equal(exact.freeShipping, true);
+  assert.equal(exact.shippingCents, 0);
+  assert.equal(exact.remainingUntilFreeShippingCents, 0);
+  assert.equal(exact.orderTotalCents, 5000);
+
+  const over = quoteCart([{ price: "$50.01", qty: 1 }]);
+  assert.equal(over.freeShipping, true);
+  assert.equal(over.shippingCents, 0);
+  assert.equal(over.remainingUntilFreeShippingCents, 0);
+  assert.equal(over.orderTotalCents, 5001);
+
+  const headphonesOver = quoteCart([headphones]);
+  assert.equal(headphonesOver.freeShipping, true);
+  assert.equal(headphonesOver.shippingCents, 0);
+  assert.equal(headphonesOver.orderTotalCents, headphonesOver.totalCents);
+});
+
+test("SAVE10 can push a qualifying subtotal under the free-shipping threshold", () => {
+  const stillFree = quoteCart([headphones], "SAVE10");
+  assert.equal(stillFree.discountCents, 790);
+  assert.equal(stillFree.totalCents, 7110);
+  assert.equal(stillFree.freeShipping, true);
+  assert.equal(stillFree.shippingCents, 0);
+  assert.equal(stillFree.orderTotalCents, 7110);
+
+  const qualifying = quoteCart([{ price: "$50.00", qty: 1 }]);
+  assert.equal(qualifying.freeShipping, true);
+  assert.equal(qualifying.shippingCents, 0);
+
+  const dropped = quoteCart([{ price: "$50.00", qty: 1 }], "SAVE10");
+  assert.equal(dropped.subtotalCents, 5000);
+  assert.equal(dropped.discountCents, 500);
+  assert.equal(dropped.totalCents, 4500);
+  assert.equal(dropped.freeShipping, false);
+  assert.equal(dropped.shippingCents, SHIPPING_FEE_CENTS);
+  assert.equal(dropped.remainingUntilFreeShippingCents, 500);
+  assert.equal(formatCents(dropped.remainingUntilFreeShippingCents), "$5.00");
+  assert.equal(dropped.orderTotalCents, 5099);
+  assert.equal(formatCents(dropped.orderTotalCents), "$50.99");
+});
+
+test("an empty cart has no shipping charge", () => {
+  const quote = quoteCart([]);
+  assert.equal(quote.subtotalCents, 0);
+  assert.equal(quote.discountCents, 0);
+  assert.equal(quote.totalCents, 0);
+  assert.equal(quote.shippingCents, 0);
+  assert.equal(quote.freeShipping, false);
+  assert.equal(quote.remainingUntilFreeShippingCents, 0);
+  assert.equal(quote.orderTotalCents, 0);
+
+  const withCode = quoteCart([], "SAVE10");
+  assert.equal(withCode.shippingCents, 0);
+  assert.equal(withCode.orderTotalCents, 0);
+  assert.equal(withCode.freeShipping, false);
+});
+
+test("removing an item can cross back under the free-shipping threshold", () => {
+  const both = quoteCart([
+    { price: "$49.99", qty: 1 },
+    { price: "$50.00", qty: 1 },
+  ]);
+  assert.equal(both.subtotalCents, 9999);
+  assert.equal(both.freeShipping, true);
+  assert.equal(both.shippingCents, 0);
+  assert.equal(both.orderTotalCents, 9999);
+
+  const cableOnly = quoteCart([{ price: "$49.99", qty: 1 }]);
+  assert.equal(cableOnly.freeShipping, false);
+  assert.equal(cableOnly.shippingCents, SHIPPING_FEE_CENTS);
+  assert.equal(cableOnly.remainingUntilFreeShippingCents, 1);
+  assert.equal(cableOnly.orderTotalCents, 5598);
 });
 
 test("removing an item recalculates 10% of the new subtotal", () => {

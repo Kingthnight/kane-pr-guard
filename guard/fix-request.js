@@ -9,7 +9,6 @@ export function expectedFromFlow(markdown) {
 
 export function buildFixRequest({ agent, attempt, maxAttempts, branch, baseUrl, flows }) {
   const lines = [
-    "<!-- kane-pr-guard-fix -->",
     `${agent} Kane PR Guard found failures on attempt ${attempt} of ${maxAttempts}.`,
     "",
     "Please fix the sample app on this pull request branch and push. The synchronize event re-runs the guard.",
@@ -43,5 +42,7 @@ export function buildFixRequest({ agent, attempt, maxAttempts, branch, baseUrl, 
   }
 
   lines.push("Kane CLI 0.10.4 does not produce a video. Use the Test Manager link and the failure screenshot.");
+  lines.push("");
+  lines.push("<!-- kane-pr-guard-fix -->");
   return `${lines.join("\n")}\n`;
 }

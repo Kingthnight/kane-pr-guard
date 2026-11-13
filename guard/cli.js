@@ -17,7 +17,7 @@ import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 import { capNote, nextAttempt, readAttempt, shouldRequestFix, stampResult, statusToExit } from "./attempts.js";
 import { buildFixRequest, expectedFromFlow } from "./fix-request.js";
-import { createGitHub } from "./github.js";
+import { commentHasMarker, createGitHub } from "./github.js";
 import { handoff } from "./handoff.js";
 import { runMockFlow } from "./mock-runner.js";
 import { formatComment, overallStatus, summarizeOne } from "./parse-results.mjs";
@@ -222,7 +222,7 @@ async function previousAttempt(github) {
 async function clearFixComment(github, attempt) {
   try {
     const comments = await github.listComments();
-    const existing = comments.find((comment) => comment.body && comment.body.includes("<!-- kane-pr-guard-fix"));
+    const existing = comments.find((comment) => commentHasMarker(comment.body, "<!-- kane-pr-guard-fix"));
     if (!existing) return;
     await github.upsert(
       "<!-- kane-pr-guard-fix",

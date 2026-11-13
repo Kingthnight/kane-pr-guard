@@ -51,6 +51,8 @@ async function checkFlow(name, baseUrl) {
   if (name === "promo-code_test.md") return checkPromo(request);
   if (name === "promo-edge-cases_test.md") return checkPromoEdges(request);
   if (name === "exploratory-cart_test.md") return checkExploratory(request);
+  if (name === "free-shipping_test.md") return checkFreeShipping(request);
+  if (name === "free-shipping-edge-cases_test.md") return checkFreeShippingEdges(request);
   return miss(name, `No mock check for ${name}`);
 }
 
@@ -213,6 +215,90 @@ async function checkExploratory(request) {
     );
   }
   return { ok: true, heading: "Emptying the cart blocks checkout with no negative total, and a new cart must not keep a hidden promo" };
+}
+
+function isFreeShipping(text, total) {
+  return text.includes('data-testid="free-shipping">Free shipping<')
+    && text.includes('data-testid="shipping-amount">$0.00<')
+    && text.includes(`data-testid="total-due">${total}<`)
+    && !text.includes("$5.99")
+    && !text.includes('data-testid="free-shipping-hint"')
+    && !text.includes("Add $");
+}
+
+function isPaidShipping(text, subtotal, hint, total) {
+  return text.includes(`data-testid="subtotal">${subtotal}<`)
+    && text.includes('data-testid="shipping-amount">$5.99<')
+    && text.includes(`data-testid="free-shipping-hint">Add ${hint} more for free shipping.<`)
+    && text.includes(`data-testid="total-due">${total}<`)
+    && !text.includes('data-testid="free-shipping"')
+    && !text.includes("$0.00");
+}
+
+async function checkFreeShipping(request) {
+  await follow(request, "POST", "/login", USER);
+  const empty = await follow(request, "GET", "/cart");
+  if (!empty.text.includes("Your cart is empty") || !empty.text.includes('data-testid="shipping-amount">$0.00<') || !empty.text.includes('data-testid="total-due">$0.00<') || empty.text.includes("$5.99")) {
+    return miss("Empty cart has no shipping charge", "empty cart did not show a readable Shipping and Total of $0.00");
+  }
+  await follow(request, "POST", "/cart/items", { sku: "headphones" });
+  const cart = await follow(request, "GET", "/cart");
+  if (!cart.text.includes('data-testid="subtotal">$79.00<') || !isFreeShipping(cart.text, "$79.00")) {
+    return miss("A cart over $50 qualifies for free shipping", "headphones cart was not free shipping at a $79.00 total");
+  }
+  const checkout = await follow(request, "GET", "/checkout");
+  if (!checkout.text.includes('data-testid="subtotal">$79.00<') || !isFreeShipping(checkout.text, "$79.00")) {
+    return miss("Confirmation totals match the cart and checkout, including shipping", "checkout did not match the free-shipping cart");
+  }
+  const confirmation = await follow(request, "POST", "/checkout", SHIPPING);
+  if (!confirmation.text.includes('data-testid="order-number"') || !confirmation.text.includes('data-testid="subtotal">$79.00<') || !isFreeShipping(confirmation.text, "$79.00")) {
+    return miss("Confirmation totals match the cart and checkout, including shipping", "confirmation did not match free shipping at $79.00");
+  }
+  return { ok: true, heading: "Confirmation totals match the cart and checkout, including shipping" };
+}
+
+async function checkFreeShippingEdges(request) {
+  await follow(request, "POST", "/login", USER);
+  await follow(request, "POST", "/cart/items", { sku: "headphones" });
+  let cart = await follow(request, "POST", "/cart/promo", { promo: "SAVE10" });
+  if (!cart.text.includes('data-testid="discount-amount">$7.90<') || !cart.text.includes('data-testid="after-discount">$71.10<') || !isFreeShipping(cart.text, "$71.10") || cart.text.includes("$77.09")) {
+    return miss("SAVE10 on a $79.00 cart still qualifies for free shipping", "SAVE10 on headphones did not stay free at $71.10");
+  }
+  await follow(request, "POST", "/cart/items/remove", { sku: "headphones" });
+  await follow(request, "POST", "/cart/items", { sku: "usb-cable" });
+  cart = await follow(request, "GET", "/cart");
+  if (!isPaidShipping(cart.text, "$49.99", "$0.01", "$55.98")) {
+    return miss("Just under $50.00: USB-C Cable $49.99 pays $5.99 and shows the $0.01 hint", "USB-C Cable cart was not $49.99 plus $5.99");
+  }
+  await follow(request, "POST", "/cart/items/remove", { sku: "usb-cable" });
+  await follow(request, "POST", "/cart/items", { sku: "desk-pad" });
+  cart = await follow(request, "GET", "/cart");
+  if (!cart.text.includes('data-testid="subtotal">$50.00<') || !isFreeShipping(cart.text, "$50.00")) {
+    return miss("Exactly $50.00: Desk Pad qualifies for free shipping", "Desk Pad was not free shipping at $50.00");
+  }
+  cart = await follow(request, "POST", "/cart/promo", { promo: "SAVE10" });
+  if (!cart.text.includes('data-testid="discount-amount">$5.00<') || !cart.text.includes('data-testid="after-discount">$45.00<') || !isPaidShipping(cart.text, "$50.00", "$5.00", "$50.99")) {
+    return miss("SAVE10 drops a $50.00 cart below the threshold; confirmation includes discount and shipping", "SAVE10 did not drop the Desk Pad to $45.00 plus $5.99 shipping");
+  }
+  const checkout = await follow(request, "GET", "/checkout");
+  if (!checkout.text.includes('data-testid="after-discount">$45.00<') || !isPaidShipping(checkout.text, "$50.00", "$5.00", "$50.99")) {
+    return miss("SAVE10 drops a $50.00 cart below the threshold; confirmation includes discount and shipping", "checkout did not match the discounted Desk Pad total of $50.99");
+  }
+  const confirmation = await follow(request, "POST", "/checkout", SHIPPING);
+  if (!confirmation.text.includes('data-testid="order-number"') || !confirmation.text.includes('data-testid="discount-amount">$5.00<') || !isPaidShipping(confirmation.text, "$50.00", "$5.00", "$50.99")) {
+    return miss("SAVE10 drops a $50.00 cart below the threshold; confirmation includes discount and shipping", "confirmation did not match discount $5.00, shipping $5.99, and total $50.99");
+  }
+  await follow(request, "POST", "/cart/items", { sku: "usb-cable" });
+  await follow(request, "POST", "/cart/items", { sku: "desk-pad" });
+  cart = await follow(request, "GET", "/cart");
+  if (!cart.text.includes('data-testid="subtotal">$99.99<') || !isFreeShipping(cart.text, "$99.99")) {
+    return miss("Removing an item crosses back under the threshold", "cable plus desk pad was not free shipping at $99.99");
+  }
+  cart = await follow(request, "POST", "/cart/items/remove", { sku: "desk-pad" });
+  if (!isPaidShipping(cart.text, "$49.99", "$0.01", "$55.98") || cart.text.includes("$99.99")) {
+    return miss("Removing an item crosses back under the threshold", "removing the Desk Pad did not return shipping to $5.99 on the $49.99 cable");
+  }
+  return { ok: true, heading: "Removing an item crosses back under the threshold" };
 }
 
 function miss(heading, remark) {
