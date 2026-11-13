@@ -1,0 +1,5 @@
+{"type":"stream_start","surface":"testmd","cli_version":"0.10.4","v":1,"ts":"2026-11-13T11:05:00.000Z"}
+{"type":"test_md_step_end","status":"failed","heading":"Fill shipping and place the order","step":3,"v":1,"ts":"2026-11-13T11:05:20.000Z"}
+{"step":5,"status":"failed","remark":"assert: an order number is visible","v":1,"ts":"2026-11-13T11:05:21.000Z"}
+{"type":"run_end","status":"failed","reason":"Final verification failed: \"an order number is visible\"","reason_code":"assertion_error.final_verification","result_code":710,"test_url":"https://test-manager.lambdatest.com/projects/01EXAMPLE/test-cases/01STEP/dashboard/share/STEPURL","session_dir":"/tmp/kane-sessions/checkout","duration":12.5,"v":1,"ts":"2026-11-13T11:05:22.000Z"}
+{"type":"test_md_done","overall_status":"failed","duration_s":40,"session_id":"sess-fail","share_url":"https://test-manager.lambdatest.com/projects/01EXAMPLE/test-cases/01FILE/dashboard/share/FILEURL","v":1,"ts":"2026-11-13T11:05:23.000Z"}

@@ -1,0 +1,4 @@
+{"type":"stream_start","surface":"testmd","cli_version":"0.10.4","v":1,"ts":"2026-11-13T11:00:00.000Z"}
+{"type":"test_md_step_end","heading":"Case A — wrong password shows an error","status":"passed","step":1,"v":1,"ts":"2026-11-13T11:00:10.000Z"}
+{"type":"run_end","status":"failed","reason":"step-level run_end must not decide the file","test_url":"https://test-manager.lambdatest.com/projects/STEP/dashboard/share/step-only","session_dir":"/tmp/kane-sessions/step","v":1,"ts":"2026-11-13T11:00:11.000Z"}
+{"type":"test_md_done","overall_status":"passed","duration_s":78,"session_id":"sess-pass","share_url":"https://test-manager.lambdatest.com/projects/FILE/dashboard/share/file-pass","v":1,"ts":"2026-11-13T11:00:20.000Z"}
