@@ -10,6 +10,7 @@ import express from "express";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { applyPromo, formatCents, quoteCart } from "./pricing.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -57,7 +58,15 @@ export function createApp() {
       return;
     }
     const sid = crypto.randomBytes(16).toString("hex");
-    sessions.set(sid, { email: SEEDED_USER.email, name: SEEDED_USER.name, cart: [], notice: "" });
+    sessions.set(sid, {
+      email: SEEDED_USER.email,
+      name: SEEDED_USER.name,
+      cart: [],
+      notice: "",
+      promoCode: "",
+      promoError: "",
+      promoDraft: "",
+    });
     setCookie(res, sid);
     res.redirect(303, "/dashboard");
   });
@@ -138,6 +147,27 @@ export function createApp() {
     res.redirect(303, "/cart");
   });
 
+  app.post("/cart/promo", (req, res) => {
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (cartCount(session) === 0) {
+      res.redirect(303, "/cart");
+      return;
+    }
+    const result = applyPromo(session.promoCode, req.body.promo);
+    session.promoCode = result.code;
+    if (result.error) {
+      session.promoError = result.error;
+      session.promoDraft = String(req.body.promo || "").trim();
+      session.notice = "";
+    } else {
+      session.promoError = "";
+      session.promoDraft = "";
+      session.notice = `Promo code ${result.code} applied.`;
+    }
+    res.redirect(303, "/cart");
+  });
+
   app.get("/checkout", (req, res) => {
     const session = requireSession(req, res);
     if (!session) return;
@@ -165,11 +195,24 @@ export function createApp() {
       }));
       return;
     }
+    const quote = quoteCart(session.cart, session.promoCode);
     const number = `KN-${nextOrder}`;
     nextOrder += 1;
-    const order = { number, email: session.email, shipping, items: session.cart.map((item) => ({ ...item })) };
+    const order = {
+      number,
+      email: session.email,
+      shipping,
+      items: session.cart.map((item) => ({ ...item })),
+      promoCode: quote.code,
+      subtotalCents: quote.subtotalCents,
+      discountCents: quote.discountCents,
+      totalCents: quote.totalCents,
+    };
     orders.push(order);
     session.cart = [];
+    session.promoCode = "";
+    session.promoError = "";
+    session.promoDraft = "";
     session.notice = "";
     res.redirect(303, `/orders/${order.number}`);
   });
@@ -191,6 +234,7 @@ export function createApp() {
       <p class="lede">Thanks, ${escapeHtml(order.shipping.name)}. Your order has been placed.</p>
       <p>Order number</p>
       <p class="order-number" data-testid="order-number">${escapeHtml(order.number)}</p>
+      ${renderSummary(orderQuote(order))}
       <p class="muted">A confirmation was prepared for ${escapeHtml(order.shipping.email)}. No real payment was charged.</p>
     `;
     send(res, 200, layout({ title: "Order confirmation", session, body }));
@@ -282,11 +326,74 @@ function renderCart(session) {
       </form>
     </li>
   `).join("");
+  const quote = quoteCart(session.cart, session.promoCode);
   return `
     <h1>Cart</h1>
     ${noticeHtml(session)}
     <ul class="cart-list" data-testid="cart-page">${rows}</ul>
+    ${renderPromoForm(session)}
+    ${renderSummary(quote)}
     <p class="actions"><a class="button" href="/checkout" data-testid="checkout-link">Checkout</a></p>
+  `;
+}
+
+function orderQuote(order) {
+  return {
+    subtotalCents: order.subtotalCents,
+    discountCents: order.discountCents,
+    totalCents: order.totalCents,
+    code: order.promoCode || "",
+    applied: Boolean(order.promoCode),
+  };
+}
+
+function renderSummary(quote) {
+  const discount = quote.applied
+    ? `<div class="summary-row">
+        <dt>Promo code</dt>
+        <dd data-testid="applied-promo">${escapeHtml(quote.code)}</dd>
+      </div>
+      <div class="summary-row">
+        <dt>Discount</dt>
+        <dd data-testid="discount-amount">${formatCents(quote.discountCents)}</dd>
+      </div>`
+    : "";
+  return `
+    <section class="card summary" data-testid="order-summary">
+      <h2>Order summary</h2>
+      <dl>
+        <div class="summary-row">
+          <dt>Subtotal</dt>
+          <dd data-testid="subtotal">${formatCents(quote.subtotalCents)}</dd>
+        </div>
+        ${discount}
+        <div class="summary-row total-row">
+          <dt>Total due</dt>
+          <dd data-testid="total-due">${formatCents(quote.totalCents)}</dd>
+        </div>
+      </dl>
+    </section>
+  `;
+}
+
+function renderPromoForm(session) {
+  const error = session.promoError || "";
+  const draft = session.promoDraft || "";
+  session.promoError = "";
+  session.promoDraft = "";
+  const alert = error
+    ? `<p class="alert" role="alert" data-testid="promo-error">${escapeHtml(error)}</p>`
+    : "";
+  return `
+    <div class="promo">
+      ${alert}
+      <form class="promo-form" method="post" action="/cart/promo" data-testid="promo-form">
+        <label for="promo">Promo code
+          <input id="promo" name="promo" autocomplete="off" spellcheck="false" data-testid="promo-code" value="${escapeHtml(draft)}">
+        </label>
+        <button type="submit" data-testid="apply-promo">Apply</button>
+      </form>
+    </div>
   `;
 }
 
@@ -305,10 +412,12 @@ function renderCheckoutForm(session, error) {
     </label>
   `).join("");
   const alert = error ? `<p class="alert" role="alert" data-testid="checkout-error">${escapeHtml(error)}</p>` : "";
+  const quote = quoteCart(session.cart, session.promoCode);
   return `
     <h1>Checkout</h1>
     <p class="lede">Shipping only. Payment is a dummy step — no card is required.</p>
     ${alert}
+    ${renderSummary(quote)}
     <form class="stack card" method="post" action="/checkout" data-testid="shipping-form">
       ${fields}
       <button type="submit" data-testid="place-order">Place order</button>

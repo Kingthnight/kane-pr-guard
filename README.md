@@ -76,6 +76,13 @@ Shipping values the checkout flow types: name `Test User`, address
 `123 Test Street`, city `Testville`, postal code `12345`, email
 `test@example.com`, phone `555-0100`.
 
+Promo code `SAVE10` (any letter case) takes 10% off the cart subtotal.
+Enter it on the cart page and press Apply. The discount is rounded
+half-up to the cent and does not stack if the code is applied again.
+Any other code shows "Invalid promo code." and leaves the current total
+in place. Checkout and the order confirmation show the subtotal, the
+discount, and the total due.
+
 ## Run the guard locally
 
 The guard starts the shop if nothing is already healthy at `BASE_URL`,

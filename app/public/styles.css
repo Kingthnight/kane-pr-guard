@@ -155,3 +155,16 @@ button.secondary, .button.secondary {
 }
 
 .actions { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+
+.summary { margin: 1rem 0; max-width: 28rem; }
+.summary h2 { margin: 0 0 0.75rem; font-size: 1.2rem; }
+.summary dl { margin: 0; display: grid; gap: 0.45rem; }
+.summary-row { display: flex; justify-content: space-between; gap: 1rem; }
+.summary-row dt { margin: 0; color: var(--muted); font-weight: 600; }
+.summary-row dd { margin: 0; font-variant-numeric: tabular-nums; }
+.total-row { border-top: 1px solid var(--line); padding-top: 0.55rem; font-weight: 700; }
+.total-row dt { color: var(--ink); }
+
+.promo { margin: 1rem 0 0.25rem; max-width: 28rem; }
+.promo-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.6rem; }
+.promo-form label { flex: 1 1 12rem; }
