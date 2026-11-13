@@ -9,7 +9,7 @@ import { once } from "node:events";
 import { capNote, nextAttempt, readAttempt, shouldRequestFix, stampResult, statusToExit } from "../guard/attempts.js";
 import { buildFixRequest } from "../guard/fix-request.js";
 import { listFlowFiles, runGuard, tokenForFixComment } from "../guard/cli.js";
-import { createGitHub } from "../guard/github.js";
+import { commentHasMarker, createGitHub } from "../guard/github.js";
 import { kaneArgs, missingKaneSecrets } from "../guard/runner.js";
 
 function freePort() {
@@ -78,7 +78,10 @@ test("fix request names the step, the reason, the run link, and the screenshot",
       expected: "Place the order and verify an order number is visible.",
     }],
   });
-  assert.match(body, /@cursor/);
+  assert.equal(body.startsWith("@cursor"), true);
+  assert.equal(body.split("\n")[0].startsWith("@cursor"), true);
+  assert.equal(body.trimEnd().endsWith("<!-- kane-pr-guard-fix -->"), true);
+  assert.ok(body.indexOf("<!-- kane-pr-guard-fix -->") > body.indexOf("@cursor"));
   assert.match(body, /Fill shipping and place the order/);
   assert.match(body, /order number is visible/);
   assert.match(body, /https:\/\/test-manager\.lambdatest\.com\/projects\/01EXAMPLE\/dashboard\/share\/FILEURL/);
@@ -116,6 +119,32 @@ test("an existing PR comment is updated instead of duplicated", async () => {
   await empty.upsert("<!-- kane-pr-guard-result", "first");
   assert.equal(calls[1].method, "POST");
   assert.match(calls[1].url, /\/issues\/4\/comments$/);
+});
+
+test("a fix comment is updated when the marker is anywhere in the body", async () => {
+  const calls = [];
+  const existingBody = "@cursor Kane PR Guard found failures on attempt 1 of 3.\n\nPlease fix the sample app.\n\n<!-- kane-pr-guard-fix -->\n";
+  assert.equal(commentHasMarker(existingBody, "<!-- kane-pr-guard-fix"), true);
+  assert.equal(commentHasMarker("@cursor only", "<!-- kane-pr-guard-fix"), false);
+  assert.equal(existingBody.startsWith("@cursor"), true);
+  assert.equal(existingBody.startsWith("<!--"), false);
+
+  const fetchImpl = async (url, options = {}) => {
+    calls.push({ url, method: options.method || "GET", body: options.body });
+    if ((options.method || "GET") === "GET") {
+      return json([{ id: 42, body: existingBody }]);
+    }
+    return json({ id: 42, body: "updated" });
+  };
+  const github = createGitHub({ token: "token", repository: "acme/shop", prNumber: 3, fetchImpl });
+  const next = "@cursor Kane PR Guard found failures on attempt 2 of 3.\n\n<!-- kane-pr-guard-fix -->\n";
+  await github.upsert("<!-- kane-pr-guard-fix", next);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].method, "PATCH");
+  assert.match(calls[1].url, /\/issues\/comments\/42$/);
+  const sent = JSON.parse(calls[1].body);
+  assert.equal(sent.body.startsWith("@cursor"), true);
+  assert.equal(sent.body.trimEnd().endsWith("<!-- kane-pr-guard-fix -->"), true);
 });
 
 test("kane-cli is invoked with the verifier's flags", () => {
@@ -194,6 +223,8 @@ test("local guard writes a fix request when the app does not match the flows", a
     assert.ok(report.flows.every((flow) => flow.status === "failed"));
     assert.ok(report.flows.every((flow) => flow.failingStep && flow.reason && flow.link));
     const fix = fs.readFileSync(path.join(dir, "kane-fix-request.md"), "utf8");
+    assert.equal(fix.startsWith("@cursor"), true);
+    assert.equal(fix.trimEnd().endsWith("<!-- kane-pr-guard-fix -->"), true);
     assert.match(fix, /@cursor/);
     assert.match(fix, /Failing step/);
     assert.match(fix, /test-manager\.lambdatest\.com\/mock\//);

@@ -1,10 +1,14 @@
 # Free shipping — behavior the Kane flows expect
 
-Builder: implement this contract in the sample app, and add the two fixture
-products below, so `free-shipping_test.md` and
-`free-shipping-edge-cases_test.md` can pass on PR #3. Do not treat these
-flows as a full pass against today's two-product catalog: the $49.99 /
-$50.00 boundaries are blocked until the fixtures exist.
+Builder: this is the contract `free-shipping_test.md` and
+`free-shipping-edge-cases_test.md` assert on PR #3. The catalog includes
+Wireless Headphones, Mechanical Keyboard, and the two boundary fixtures
+(USB-C Cable $49.99, Desk Pad $50.00).
+
+Kane flows assert Shipping and Total **amounts**, not the phrases
+"free shipping" or "not free shipping". The below-threshold hint is
+`Add $X.XX more for free shipping.`, so a "not free shipping" check
+collides with that copy (CI run 43434216667; see BUG_LOG.md).
 
 ## Rule
 
@@ -21,31 +25,25 @@ $50.00 boundaries are blocked until the fixtures exist.
 
 - Cart, checkout, and order confirmation show a **Shipping** line and a
   **Total**.
-- At or above the threshold: the page contains **"Free shipping"** and the
-  shipping amount is **$0.00**.
-- Below the threshold: shipping is **$5.99**, and a hint contains
-  **"Add $X.XX more"**, where `X.XX = 50.00 − discounted_subtotal`
-  (already in cents for the cases below). Suggested full hint:
-  `Add $X.XX more for free shipping.`
-- Do not require a specific label string beyond those substrings.
+- At or above the threshold: the **Shipping line amount is $0.00**
+  (not $5.99). The UI may also say "Free shipping"; the Kane flows
+  assert the amount, not that phrase.
+- Below the threshold: the **Shipping line amount is $5.99** (not $0.00),
+  and the hint shows **"Add $X.XX more"**, where
+  `X.XX = 50.00 − discounted_subtotal` (already in cents for the cases
+  below). Suggested full hint: `Add $X.XX more for free shipping.`
+  Assert the hint's dollar amount (`Add $0.01 more`, `Add $5.00 more`);
+  do not assert "not free shipping".
+- Do not require a specific label string beyond those amount checks.
 
 ## Catalog
 
-Already in the app:
+The catalog, including the two boundary fixtures:
 
-| Product | SKU | Unit price |
-| --- | --- | --- |
-| Wireless Headphones | `headphones` | $79.00 |
-| Mechanical Keyboard | `keyboard` | $129.00 |
-
-**Add these fixtures** (exact name and price; the edge-case flow looks them
-up by name). They are required because no combination of $79.00 / $129.00
-can produce a merchandise total of $49.99 or $50.00, and SAVE10 on the
-cheapest current item still leaves $71.10, which stays above $50.00.
-There is no price editor in the shop; do not invent other products.
-
-| Product | SKU | Unit price | Why |
+| Product | SKU | Unit price | Role |
 | --- | --- | --- | --- |
+| Wireless Headphones | `headphones` | $79.00 | Over-threshold carts |
+| Mechanical Keyboard | `keyboard` | $129.00 | Over-threshold carts |
 | USB-C Cable | `usb-cable` | $49.99 | Just under $50.00; remainder after a removal crosses under |
 | Desk Pad | `desk-pad` | $50.00 | Exactly $50.00; SAVE10 drops it to $45.00 |
 
