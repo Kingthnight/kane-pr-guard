@@ -1,15 +1,12 @@
 # Kane PR Guard
 
-Every pull request starts the Northwind Supply sample shop, runs four
-plain-English [Kane CLI](https://github.com/LambdaTest/kane-cli) flows
-against it, and posts one comment with the result. A failure becomes a
-fix request for the coding agent. The agent's push hits `synchronize`,
-the guard runs again, and the same comment is updated. The loop stops
-after 3 attempts (change it with `KANE_MAX_ATTEMPTS`).
+**Kane tests every pull request in a real browser, and your coding agent fixes what it breaks, until it's green.**
 
-Kane CLI 0.10.4 does not produce a video. The comment shows the Test
-Manager run link, the failing step and reason, and the failure screenshot
-extracted from the evidence pack.
+Built for the KaneCLI Hackathon (November 2026). The coding agent is Cursor. Verification is [Kane CLI](https://github.com/LambdaTest/kane-cli) 0.10.4.
+
+Every pull request starts the Northwind Supply sample shop, runs plain-English Kane CLI flows against it in headless Chrome, and posts one comment with the result. A failure becomes a fix request for the coding agent. The agent's push hits `synchronize`, the guard runs again, and the same comment is updated. The loop stops after 3 attempts (change it with `KANE_MAX_ATTEMPTS`).
+
+Kane CLI 0.10.4 does not produce a video. The comment shows the Test Manager run link, the failing step and reason, and the failure screenshot extracted from the evidence pack.
 
 ```mermaid
 flowchart TD
@@ -26,6 +23,52 @@ flowchart TD
   push --> pr
   cap -->|no| stop[Leave the last failure and do not ask again]
 ```
+
+## Try it
+
+You don't need a Kane account to see the report. With Node.js 18 or newer:
+
+```bash
+npm install
+KANE_RUNNER=mock npm run guard
+```
+
+The mock runner checks the shop over HTTP instead of a real browser, so it shows the comment format, not a real Kane verdict. For real Kane runs, follow [Install](#install) and drop `KANE_RUNNER=mock`.
+
+## What Kane caught
+
+All times are 13 Nov 2026, India Standard Time (IST). These are real runs on this repo, including the ones where we were wrong.
+
+### 1. A real money bug: SAVE10 survived an empty cart ([PR #2](https://github.com/Kingthnight/kane-pr-guard/pull/2))
+
+At 17:39, the exploratory cart flow applied `SAVE10`, emptied the cart, and added one Wireless Headphones ($79.00). The promo box was blank, but the order summary still took $7.90 off and billed **$71.10**. Kane classified it as a product defect (`result_code` 740, confidence 0.98), and a second run at 17:49 reproduced the same totals.
+
+The cause: `POST /cart/items/remove` in `app/server.js` removed the item but left `session.promoCode` in place, and the empty-cart view hid the promo field. Commit `c63250e` calls a new `retainedPromo()` from `app/pricing.js`, which drops the code once the cart is empty. Our build agent wrote that fix; this one did not go through the `@cursor` loop. Kane re-ran the flow at 18:28 and it passed ($79.00 due, no discount line), then the rest of the suite passed as replays.
+
+- [Failing run (17:39)](https://test-manager.lambdatest.com/projects/01M7A8FM58XQCJ9DPJZ9WGNGBQ/test-cases/01M7ACPV97KKB1PW2JHFPS5RQR/dashboard/share/US_WT34YXSTGS0PWE8ACKE9NGZQQ63N869NIRXJMT0J0E54PFUKHZWMV6BCWY8IJ85U?type=summary&agentView=true&fqdn=summary-page)
+- [Passing run (18:28)](https://test-manager.lambdatest.com/projects/01M7A8FM58XQCJ9DPJZ9WGNGBQ/test-cases/01M7ACPV97KKB1PW2JHFPS5RQR/dashboard/share/US_DWUHRCMPZYXAL1Z2B34V7FBTA63L6MBPEQN72Z8RIJTK662W8USG8DYAYCLMT32J?type=summary&agentView=true&fqdn=summary-page)
+
+### 2. Kane said the bug was in our test, not the app ([PR #3](https://github.com/Kingthnight/kane-pr-guard/pull/3), attempt 1)
+
+PR #3 adds free shipping at $50. At 19:16, on commit `0405e64`, the "just under $50" check failed. The app was right: $5.99 shipping, the hint "Add $0.01 more for free shipping.", and a $55.98 total. Kane labelled the failure `automation_bug` / `config_issue` with confidence 0.97, because our step said "not free shipping" and that wording collided with the hint text on the page. We reworded the flows to check amounts only.
+
+That attempt also exposed a bug in the guard itself. Its first `@cursor` fix request at 19:31 was ignored, because a hidden marker came before the mention. Commit `9273530`, directed by a person through our build agent, moved `@cursor` to the first line and fixed the flow wording.
+
+### 3. The agent fixed a gap from the guard's request ([PR #3](https://github.com/Kingthnight/kane-pr-guard/pull/3), attempts 2 and 3)
+
+At 20:23:41, the guard run on `9273530` failed (`result_code` 750): the empty cart showed no Shipping or Total lines. The guard edited its fix request in place. cursor[bot] replied at 20:23:47 and pushed `09f0480` at 20:24:35, so the empty cart now shows Shipping $0.00 and Total $0.00, is still not billed, and still blocks checkout. The push re-ran the guard, and attempt 3 passed in [Actions run 43447263367](https://github.com/Kingthnight/kane-pr-guard/actions/runs/43447263367), finishing at 21:02. PR #3 was merged into `main` as `0ecbc5e`.
+
+Once the trigger was fixed, this loop ran with no human relaying the request. Two caveats, to be precise: Cursor routed the request to PR #3's existing agent rather than starting a new one, and our build agent had earlier told that agent to act on guard requests. A manual "@cursor reply ok" comment at 20:07 was only a connectivity test and changed no code.
+
+## What the PR comment shows
+
+The guard keeps one result comment per pull request and updates it on every run. On a failure it shows the status, the failing flow and step, Kane's reason, the Test Manager run link, and the failure screenshot from the evidence pack (uploaded with the job artifacts). Before the attempt cap, it also posts or updates a separate fix request that starts with `@cursor`. See the result and fix comments on [PR #3](https://github.com/Kingthnight/kane-pr-guard/pull/3) for real examples.
+
+## Built with
+
+- **Cursor** writes code and answers the guard's `@cursor` fix requests on the pull request.
+- **Kane CLI 0.10.4** (`@testmuai/kane-cli`) runs the plain-English flows in headless Chrome, reports NDJSON with `--agent`, and says whether a failure is a product defect or an automation bug.
+- **The guard** (`guard/`, `.github/workflows/kane-pr-guard.yml`) starts the shop, runs every flow, writes the comment, and enforces the attempt cap.
 
 ## Install
 
@@ -138,10 +181,16 @@ node guard/parse-results.mjs --markdown results/login/events.ndjson
 | `kane-flows/promo-code_test.md` | `BOGUS` is rejected, `SAVE10` takes 10% off, confirmation matches checkout |
 | `kane-flows/promo-edge-cases_test.md` | Lowercase `save10` is accepted, a second apply does not stack, removing an item recalculates |
 | `kane-flows/exploratory-cart_test.md` | Spaces, reload, quantity change, and a new cart after emptying must not keep a hidden promo |
+| `kane-flows/free-shipping_test.md` | Empty cart has no shipping charge, a $79.00 cart has Shipping $0.00, and the confirmation matches cart and checkout |
+| `kane-flows/free-shipping-edge-cases_test.md` | SAVE10 on $79.00 keeps Shipping $0.00, $49.99 pays $5.99 with the "Add $0.01 more" hint, exactly $50.00 ships free, SAVE10 drops $50.00 below the threshold ($50.99 total), and removing an item crosses back under |
 | `kane-flows/helpers/login.md` | Shared sign-in imported by the cart and checkout flows. Not an entry point |
 
 The guard runs every `kane-flows/*_test.md` file. Helpers under
-`kane-flows/helpers/` are imports, not entry points. `npm test` covers
+`kane-flows/helpers/` are imports, not entry points. `kane-flows/SHIPPING_SPEC.md` is the free-shipping
+contract the two shipping flows assert on: flat $5.99, $0.00 at a
+merchandise total of $50.00 or more after any SAVE10 discount, no charge
+on an empty cart, and checks on exact amounts rather than the phrase
+"free shipping". `npm test` covers
 the shop, the NDJSON parser, the comment body, the attempt cap, the
 per-flow early exit, and a local mock run of those flows.
 
@@ -198,7 +247,7 @@ Actions. Do not commit them and do not echo them.
 | --- | --- | --- |
 | `KANE_USERNAME` | `kane-cli login` on the runner | Set. Run 43419883242 logged in (`kane-cli login ok`, Authenticated, Token valid) at 11:48:18Z. |
 | `KANE_ACCESS_KEY` | `kane-cli login` on the runner | Set. Same run; the value is masked in the log. |
-| `KANE_FIX_TOKEN` | Posting the `@cursor` fix comment as a GitHub user | Add this for the agent loop. A fine-grained or classic PAT that can create and update pull request comments (`pull-requests: write` on this repo). |
+| `KANE_FIX_TOKEN` | Posting the `@cursor` fix comment as a GitHub user | Set. On PR #3, the fix request posted as Kingthnight (not `github-actions[bot]`), and cursor[bot] answered it. It is a PAT that can create and update pull request comments (`pull-requests: write` on this repo). |
 
 `GITHUB_TOKEN` is provided by Actions. The workflow grants
 `pull-requests: write`, and the guard uses it for the result comment.
@@ -222,13 +271,12 @@ forum.cursor.com:
 - [Automations — reacting to bot PR comments](https://forum.cursor.com/t/automations-reacting-to-bot-pr-comments/159297) (staff, 1 May 2026: bots are filtered to avoid chained triggers; a PAT is the workaround when you control the workflow)
 - [Do Issue comment automations accept github-actions[bot]?](https://forum.cursor.com/t/do-issue-comment-automations-accept-github-actions-bot-when-set-to-anyone/170940) (staff, 8 Sep 2026: the same filter applies even when the trigger is set to Anyone)
 
-What I could not confirm: there is no setting in this repository that I
-can read which proves an automation named for this repo is subscribed to
-PR comments. The PAT makes the comment eligible. Someone with access to
-Cursor still has to have a PR-comment automation (or the GitHub `@cursor`
-mention) watching this repo. I also could not list the Actions secret
-names (`gh secret list` returned 403), so "set" above is from the run
-log, not from the secret store API.
+What we confirmed: the `@cursor` trigger works on this repo. On PR #3,
+attempt 2's fix request (posted with `KANE_FIX_TOKEN`) got a reply from
+cursor[bot] 6 seconds later and a fix commit in under a minute. What we
+could not confirm from the secret store: `gh secret list` returned 403, so
+"set" above comes from run logs and the comment author, not from the
+secrets API.
 
 When `KANE_FIX_TOKEN` is set, only the fix-request comment uses it. The
 result comment stays on `GITHUB_TOKEN`. When it is unset, the fix
