@@ -436,16 +436,22 @@ test("catalog lists the USB-C Cable and Desk Pad at their fixture prices", async
   }
 });
 
-test("an empty cart shows no shipping charge", async () => {
+test("an empty cart shows a readable Shipping and Total of $0.00", async () => {
   const app = await start();
   const request = client(app.base);
   try {
     await signIn(request);
     const cart = await follow(request, "GET", "/cart");
     assert.match(cart.text, /data-testid="cart-empty"/);
+    assert.match(cart.text, /Your cart is empty/);
+    assert.match(cart.text, /data-testid="cart-badge">0</);
+    assert.match(cart.text, />Shipping</);
+    assert.match(cart.text, /data-testid="shipping-amount">\$0\.00</);
+    assert.match(cart.text, />Total due</);
+    assert.match(cart.text, /data-testid="total-due">\$0\.00</);
     assert.doesNotMatch(cart.text, /\$5\.99/);
-    assert.doesNotMatch(cart.text, /data-testid="total-due">\$5\.99</);
-    assert.doesNotMatch(cart.text, /data-testid="shipping-amount"/);
+    assert.doesNotMatch(cart.text, /data-testid="free-shipping-hint"/);
+    assert.doesNotMatch(cart.text, /Add \$/);
   } finally {
     await app.close();
   }

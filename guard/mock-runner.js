@@ -238,8 +238,8 @@ function isPaidShipping(text, subtotal, hint, total) {
 async function checkFreeShipping(request) {
   await follow(request, "POST", "/login", USER);
   const empty = await follow(request, "GET", "/cart");
-  if (!empty.text.includes("Your cart is empty") || empty.text.includes("$5.99") || empty.text.includes('data-testid="total-due">$5.99<')) {
-    return miss("Empty cart has no shipping charge", "empty cart showed a $5.99 shipping charge");
+  if (!empty.text.includes("Your cart is empty") || !empty.text.includes('data-testid="shipping-amount">$0.00<') || !empty.text.includes('data-testid="total-due">$0.00<') || empty.text.includes("$5.99")) {
+    return miss("Empty cart has no shipping charge", "empty cart did not show a readable Shipping and Total of $0.00");
   }
   await follow(request, "POST", "/cart/items", { sku: "headphones" });
   const cart = await follow(request, "GET", "/cart");

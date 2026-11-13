@@ -315,10 +315,12 @@ function renderLogin(error, email = "") {
 
 function renderCart(session) {
   if (session.cart.length === 0) {
+    const quote = quoteCart(session.cart, session.promoCode);
     return `
       <h1>Cart</h1>
       ${noticeHtml(session)}
       <p data-testid="cart-empty">Your cart is empty</p>
+      ${renderSummary(quote)}
       <p class="actions">
         <a class="button secondary" href="/products">Browse products</a>
         <a class="button" href="/checkout" data-testid="checkout-link">Checkout</a>
