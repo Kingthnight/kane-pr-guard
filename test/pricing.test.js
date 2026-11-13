@@ -6,6 +6,7 @@ import {
   merchandiseSubtotalCents,
   percentOffCents,
   quoteCart,
+  retainedPromo,
 } from "../app/pricing.js";
 
 const headphones = { sku: "headphones", name: "Wireless Headphones", price: "$79.00", qty: 1 };
@@ -86,6 +87,23 @@ test("an invalid code is rejected and leaves an applied code in place", () => {
   const blank = applyPromo("SAVE10", "   ");
   assert.equal(blank.code, "SAVE10");
   assert.equal(blank.error, "Enter a promo code.");
+});
+
+test("emptying the cart drops SAVE10 so the next item is full price", () => {
+  // Kane exploratory-cart, attempt 1 on pull/2: apply SAVE10, remove every
+  // item, then add Wireless Headphones without entering a code. The empty
+  // cart hides the promo field, so a code left in the session shows up as
+  // a $7.90 discount on a cart the shopper thinks is new.
+  assert.equal(retainedPromo("SAVE10", [headphones]), "SAVE10");
+  const stillStocked = quoteCart([headphones], retainedPromo("SAVE10", [headphones]));
+  assert.equal(formatCents(stillStocked.totalCents), "$71.10");
+
+  assert.equal(retainedPromo("SAVE10", []), "");
+  const fresh = quoteCart([headphones], retainedPromo("SAVE10", []));
+  assert.equal(fresh.applied, false);
+  assert.equal(fresh.discountCents, 0);
+  assert.equal(formatCents(fresh.subtotalCents), "$79.00");
+  assert.equal(formatCents(fresh.totalCents), "$79.00");
 });
 
 test("removing an item recalculates 10% of the new subtotal", () => {

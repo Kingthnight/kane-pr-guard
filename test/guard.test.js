@@ -130,29 +130,23 @@ test("kane-cli is invoked with the verifier's flags", () => {
   ]);
 });
 
-test("local guard runs every *_test.md and reports the hidden-promo bug", async () => {
+test("local guard runs every *_test.md against the sample app", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "kane-guard-"));
   const port = await freePort();
   const code = await runGuard(isolatedEnv(dir, { BASE_URL: `http://127.0.0.1:${port}` }));
   const report = JSON.parse(fs.readFileSync(path.join(dir, "kane-report.json"), "utf8"));
-  assert.equal(code, 1);
-  assert.equal(report.status, "failed");
+  assert.equal(code, 0);
+  assert.equal(report.status, "passed");
   assert.equal(report.runner, "mock");
   const names = listFlowFiles(path.join(process.cwd(), "kane-flows"));
   assert.deepEqual(report.flows.map((flow) => path.basename(flow.flow)), names);
   assert.ok(names.includes("exploratory-cart_test.md"));
   assert.ok(names.includes("promo-code_test.md"));
   assert.ok(!names.includes("login.md"));
-  const byName = Object.fromEntries(report.flows.map((flow) => [path.basename(flow.flow), flow]));
-  for (const name of ["login_test.md", "add-to-cart_test.md", "checkout_test.md", "empty-cart-guard_test.md", "promo-code_test.md", "promo-edge-cases_test.md"]) {
-    assert.equal(byName[name].status, "passed", name);
-  }
-  assert.equal(byName["exploratory-cart_test.md"].status, "failed");
-  assert.match(byName["exploratory-cart_test.md"].reason, /\$79\.00/);
-  assert.match(byName["exploratory-cart_test.md"].reason, /emptied/);
+  assert.ok(report.flows.every((flow) => flow.status === "passed"));
   const markdown = fs.readFileSync(path.join(dir, "kane-report.md"), "utf8");
-  assert.match(markdown, /Kane PR Guard ❌ failed/);
-  assert.match(markdown, /exploratory-cart_test\.md/);
+  assert.match(markdown, /Kane PR Guard ✅ passed/);
+  assert.equal(fs.existsSync(path.join(dir, "kane-fix-request.md")), false);
 });
 
 test("a fix comment uses KANE_FIX_TOKEN when it is set", () => {

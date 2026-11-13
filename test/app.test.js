@@ -339,6 +339,32 @@ test("removing an item keeps SAVE10 and recalculates the discount", async () => 
   }
 });
 
+test("emptying the cart drops SAVE10 so the next item is full price", async () => {
+  const app = await start();
+  const request = client(app.base);
+  try {
+    await signIn(request);
+    await follow(request, "POST", "/cart/items", { sku: "headphones" });
+    await follow(request, "POST", "/cart/promo", { promo: "SAVE10" });
+    const emptied = await follow(request, "POST", "/cart/items/remove", { sku: "headphones" });
+    assert.match(emptied.text, /Your cart is empty/);
+    assert.doesNotMatch(emptied.text, /SAVE10/);
+    assert.doesNotMatch(emptied.text, /data-testid="promo-form"/);
+
+    await follow(request, "POST", "/cart/items", { sku: "headphones" });
+    const cart = await follow(request, "GET", "/cart");
+    assert.match(cart.text, /data-testid="promo-code" value=""/);
+    assert.doesNotMatch(cart.text, /data-testid="applied-promo"/);
+    assert.doesNotMatch(cart.text, /data-testid="discount-amount"/);
+    assert.doesNotMatch(cart.text, /\$7\.90/);
+    assert.doesNotMatch(cart.text, /\$71\.10/);
+    assert.match(cart.text, /data-testid="subtotal">\$79\.00</);
+    assert.match(cart.text, /data-testid="total-due">\$79\.00</);
+  } finally {
+    await app.close();
+  }
+});
+
 test("checkout and the confirmation show the same discounted total", async () => {
   const app = await start();
   const request = client(app.base);

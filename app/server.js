@@ -10,7 +10,7 @@ import express from "express";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { applyPromo, formatCents, quoteCart } from "./pricing.js";
+import { applyPromo, formatCents, quoteCart, retainedPromo } from "./pricing.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -143,6 +143,11 @@ export function createApp() {
     const session = requireSession(req, res);
     if (!session) return;
     session.cart = session.cart.filter((item) => item.sku !== req.body.sku);
+    session.promoCode = retainedPromo(session.promoCode, session.cart);
+    if (!session.promoCode) {
+      session.promoError = "";
+      session.promoDraft = "";
+    }
     session.notice = "Removed the item from the cart.";
     res.redirect(303, "/cart");
   });

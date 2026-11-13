@@ -51,6 +51,18 @@ export function quoteCart(items, promoCode) {
 }
 
 /**
+ * A promo belongs to the cart on screen. Removing one item while others
+ * remain keeps it. Emptying the cart drops it, so the next item is full
+ * price until the shopper applies a code again. The empty-cart page does
+ * not show the promo field, and a hidden code must not follow them there.
+ */
+export function retainedPromo(promoCode, items) {
+  const hasItems = Array.isArray(items) && items.some((item) => item.qty > 0);
+  if (!hasItems) return "";
+  return String(promoCode || "").toUpperCase() === SAVE10 ? SAVE10 : "";
+}
+
+/**
  * SAVE10 matches in any letter case. An unrecognized code is rejected
  * and the code already in effect is left in place.
  */

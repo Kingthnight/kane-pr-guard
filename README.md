@@ -80,8 +80,10 @@ Promo code `SAVE10` (any letter case) takes 10% off the cart subtotal.
 Enter it on the cart page and press Apply. The discount is rounded
 half-up to the cent and does not stack if the code is applied again.
 Any other code shows "Invalid promo code." and leaves the current total
-in place. Checkout and the order confirmation show the subtotal, the
-discount, and the total due.
+in place. Removing one item while others remain keeps the code and
+recalculates. Emptying the cart drops it, so the next item is full price
+until the code is applied again. Checkout and the order confirmation
+show the subtotal, the discount, and the total due.
 
 ## Run the guard locally
 
