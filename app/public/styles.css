@@ -164,6 +164,8 @@ button.secondary, .button.secondary {
 .summary-row dd { margin: 0; font-variant-numeric: tabular-nums; }
 .total-row { border-top: 1px solid var(--line); padding-top: 0.55rem; font-weight: 700; }
 .total-row dt { color: var(--ink); }
+.free-shipping-label { margin-right: 0.4rem; }
+.summary-row dd .hint { display: block; margin-top: 0.25rem; color: var(--muted); font-weight: 400; }
 
 .promo { margin: 1rem 0 0.25rem; max-width: 28rem; }
 .promo-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.6rem; }

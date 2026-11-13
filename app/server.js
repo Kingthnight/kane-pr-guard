@@ -23,6 +23,8 @@ export const SEEDED_USER = {
 export const PRODUCTS = [
   { sku: "headphones", name: "Wireless Headphones", price: "$79.00", blurb: "Closed-back, office quiet." },
   { sku: "keyboard", name: "Mechanical Keyboard", price: "$129.00", blurb: "Tactile switches, full size." },
+  { sku: "usb-cable", name: "USB-C Cable", price: "$49.99", blurb: "One meter, charge and sync." },
+  { sku: "desk-pad", name: "Desk Pad", price: "$50.00", blurb: "Cloth surface for a desk." },
 ];
 
 export function createApp() {
@@ -211,7 +213,11 @@ export function createApp() {
       promoCode: quote.code,
       subtotalCents: quote.subtotalCents,
       discountCents: quote.discountCents,
+      shippingCents: quote.shippingCents,
+      freeShipping: quote.freeShipping,
+      remainingUntilFreeShippingCents: quote.remainingUntilFreeShippingCents,
       totalCents: quote.totalCents,
+      orderTotalCents: quote.orderTotalCents,
     };
     orders.push(order);
     session.cart = [];
@@ -346,7 +352,11 @@ function orderQuote(order) {
   return {
     subtotalCents: order.subtotalCents,
     discountCents: order.discountCents,
+    shippingCents: order.shippingCents,
+    freeShipping: order.freeShipping,
+    remainingUntilFreeShippingCents: order.remainingUntilFreeShippingCents,
     totalCents: order.totalCents,
+    orderTotalCents: order.orderTotalCents,
     code: order.promoCode || "",
     applied: Boolean(order.promoCode),
   };
@@ -361,8 +371,13 @@ function renderSummary(quote) {
       <div class="summary-row">
         <dt>Discount</dt>
         <dd data-testid="discount-amount">${formatCents(quote.discountCents)}</dd>
+      </div>
+      <div class="summary-row">
+        <dt>After discount</dt>
+        <dd data-testid="after-discount">${formatCents(quote.totalCents)}</dd>
       </div>`
     : "";
+  const orderTotalCents = quote.orderTotalCents ?? quote.totalCents + (quote.shippingCents || 0);
   return `
     <section class="card summary" data-testid="order-summary">
       <h2>Order summary</h2>
@@ -372,13 +387,29 @@ function renderSummary(quote) {
           <dd data-testid="subtotal">${formatCents(quote.subtotalCents)}</dd>
         </div>
         ${discount}
+        <div class="summary-row">
+          <dt>Shipping</dt>
+          <dd>${shippingAmountHtml(quote)}</dd>
+        </div>
         <div class="summary-row total-row">
           <dt>Total due</dt>
-          <dd data-testid="total-due">${formatCents(quote.totalCents)}</dd>
+          <dd data-testid="total-due">${formatCents(orderTotalCents)}</dd>
         </div>
       </dl>
     </section>
   `;
+}
+
+function shippingAmountHtml(quote) {
+  const amount = `<span data-testid="shipping-amount">${formatCents(quote.shippingCents || 0)}</span>`;
+  const label = quote.freeShipping
+    ? `<span class="free-shipping-label" data-testid="free-shipping">Free shipping</span> `
+    : "";
+  const remaining = quote.remainingUntilFreeShippingCents || 0;
+  const hint = remaining > 0
+    ? `<span class="hint" data-testid="free-shipping-hint">Add ${formatCents(remaining)} more for free shipping.</span>`
+    : "";
+  return `${label}${amount}${hint}`;
 }
 
 function renderPromoForm(session) {

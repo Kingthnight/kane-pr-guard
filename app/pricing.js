@@ -1,13 +1,25 @@
 /**
  * Merchandise totals for the Northwind cart.
  *
- * Subtotal is unit price × quantity. There is no tax and no shipping fee.
- * SAVE10 takes 10% off the current subtotal. The discount is rounded
- * half-up to the cent, and the total due is the subtotal minus that
- * discount. One code is stored, so applying it again does not stack.
+ * Subtotal is unit price × quantity. There is no tax. SAVE10 takes 10%
+ * off the current subtotal. The discount is rounded half-up to the cent
+ * (see percentOffCents). One code is stored, so applying it again does
+ * not stack.
+ *
+ * Shipping is a flat SHIPPING_FEE_CENTS ($5.99). It is free when the
+ * merchandise total after that discount is at least
+ * FREE_SHIPPING_THRESHOLD_CENTS ($50.00). An empty cart is not charged.
+ * totalCents is the merchandise total after the discount. orderTotalCents
+ * adds shipping, which is what the shopper pays.
  */
 
 export const SAVE10 = "SAVE10";
+
+/** Merchandise after discount must reach this amount for free shipping. */
+export const FREE_SHIPPING_THRESHOLD_CENTS = 5000;
+
+/** Flat shipping fee charged when the cart is below the threshold. */
+export const SHIPPING_FEE_CENTS = 599;
 
 export function priceToCents(price) {
   const match = String(price).trim().match(/^\$(\d+)\.(\d{2})$/);
@@ -37,14 +49,29 @@ export function percentOffCents(subtotalCents, percent) {
   return Math.floor((subtotalCents * percent + 50) / 100);
 }
 
+function cartHasItems(items) {
+  return items.some((item) => item.qty > 0);
+}
+
 export function quoteCart(items, promoCode) {
   const subtotalCents = merchandiseSubtotalCents(items);
   const applied = String(promoCode || "").toUpperCase() === SAVE10;
   const discountCents = applied ? percentOffCents(subtotalCents, 10) : 0;
+  const merchandiseCents = subtotalCents - discountCents;
+  const stocked = cartHasItems(items);
+  const freeShipping = stocked && merchandiseCents >= FREE_SHIPPING_THRESHOLD_CENTS;
+  const shippingCents = stocked && !freeShipping ? SHIPPING_FEE_CENTS : 0;
+  const remainingUntilFreeShippingCents = stocked && !freeShipping
+    ? FREE_SHIPPING_THRESHOLD_CENTS - merchandiseCents
+    : 0;
   return {
     subtotalCents,
     discountCents,
-    totalCents: subtotalCents - discountCents,
+    shippingCents,
+    freeShipping,
+    remainingUntilFreeShippingCents,
+    totalCents: merchandiseCents,
+    orderTotalCents: merchandiseCents + shippingCents,
     code: applied ? SAVE10 : "",
     applied,
   };
