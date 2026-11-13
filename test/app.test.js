@@ -205,6 +205,195 @@ test("checkout with an empty cart is blocked and does not place an order", async
   }
 });
 
+const SHIPPING = {
+  name: "Test User",
+  address: "123 Test Street",
+  city: "Testville",
+  postal: "12345",
+  email: "test@example.com",
+  phone: "555-0100",
+};
+
+async function signIn(request) {
+  return follow(request, "POST", "/login", {
+    email: SEEDED_USER.email,
+    password: SEEDED_USER.password,
+  });
+}
+
+test("the cart shows a subtotal and a promo field before a code is applied", async () => {
+  const app = await start();
+  const request = client(app.base);
+  try {
+    await signIn(request);
+    await follow(request, "POST", "/cart/items", { sku: "headphones" });
+    await follow(request, "POST", "/cart/items", { sku: "keyboard" });
+    const cart = await follow(request, "GET", "/cart");
+    assert.match(cart.text, /data-testid="promo-code"/);
+    assert.match(cart.text, /data-testid="apply-promo"/);
+    assert.match(cart.text, /Promo code/);
+    assert.match(cart.text, />Apply</);
+    assert.match(cart.text, /data-testid="subtotal">\$208\.00</);
+    assert.match(cart.text, /data-testid="total-due">\$208\.00</);
+    assert.doesNotMatch(cart.text, /data-testid="discount-amount"/);
+    assert.doesNotMatch(cart.text, /data-testid="promo-error"/);
+
+    const checkout = await follow(request, "GET", "/checkout");
+    assert.match(checkout.text, /data-testid="subtotal">\$208\.00</);
+    assert.match(checkout.text, /data-testid="total-due">\$208\.00</);
+    assert.match(checkout.text, /data-testid="shipping-form"/);
+    assert.doesNotMatch(checkout.text, /data-testid="discount-amount"/);
+  } finally {
+    await app.close();
+  }
+});
+
+test("an invalid promo code shows an error and leaves the total unchanged", async () => {
+  const app = await start();
+  const request = client(app.base);
+  try {
+    await signIn(request);
+    await follow(request, "POST", "/cart/items", { sku: "headphones" });
+    await follow(request, "POST", "/cart/items", { sku: "keyboard" });
+    const cart = await follow(request, "POST", "/cart/promo", { promo: "BOGUS" });
+    assert.equal(cart.status, 200);
+    assert.match(cart.text, /data-testid="promo-error"/);
+    assert.match(cart.text, /Invalid promo code\./);
+    assert.match(cart.text, /value="BOGUS"/);
+    assert.match(cart.text, /data-testid="subtotal">\$208\.00</);
+    assert.match(cart.text, /data-testid="total-due">\$208\.00</);
+    assert.doesNotMatch(cart.text, /data-testid="discount-amount"/);
+    assert.doesNotMatch(cart.text, /\$20\.80/);
+    assert.doesNotMatch(cart.text, /\$187\.20/);
+  } finally {
+    await app.close();
+  }
+});
+
+test("SAVE10 takes 10% off and applying it again does not stack", async () => {
+  const app = await start();
+  const request = client(app.base);
+  try {
+    await signIn(request);
+    await follow(request, "POST", "/cart/items", { sku: "headphones" });
+    await follow(request, "POST", "/cart/items", { sku: "keyboard" });
+    const applied = await follow(request, "POST", "/cart/promo", { promo: "SAVE10" });
+    assert.match(applied.text, /Promo code SAVE10 applied/);
+    assert.match(applied.text, /data-testid="applied-promo">SAVE10</);
+    assert.match(applied.text, /data-testid="subtotal">\$208\.00</);
+    assert.match(applied.text, /data-testid="discount-amount">\$20\.80</);
+    assert.match(applied.text, /data-testid="total-due">\$187\.20</);
+    assert.doesNotMatch(applied.text, /\$41\.60/);
+    assert.doesNotMatch(applied.text, /\$166\.40/);
+
+    const again = await follow(request, "POST", "/cart/promo", { promo: "SAVE10" });
+    assert.match(again.text, /data-testid="discount-amount">\$20\.80</);
+    assert.match(again.text, /data-testid="total-due">\$187\.20</);
+    assert.doesNotMatch(again.text, /\$41\.60/);
+    assert.doesNotMatch(again.text, /\$166\.40/);
+  } finally {
+    await app.close();
+  }
+});
+
+test("save10 is accepted, and a later invalid code does not clear it", async () => {
+  const app = await start();
+  const request = client(app.base);
+  try {
+    await signIn(request);
+    await follow(request, "POST", "/cart/items", { sku: "headphones" });
+    await follow(request, "POST", "/cart/items", { sku: "keyboard" });
+    const applied = await follow(request, "POST", "/cart/promo", { promo: "save10" });
+    assert.match(applied.text, /data-testid="applied-promo">SAVE10</);
+    assert.match(applied.text, /data-testid="total-due">\$187\.20</);
+
+    const rejected = await follow(request, "POST", "/cart/promo", { promo: "BOGUS" });
+    assert.match(rejected.text, /Invalid promo code\./);
+    assert.match(rejected.text, /data-testid="applied-promo">SAVE10</);
+    assert.match(rejected.text, /data-testid="discount-amount">\$20\.80</);
+    assert.match(rejected.text, /data-testid="total-due">\$187\.20</);
+  } finally {
+    await app.close();
+  }
+});
+
+test("removing an item keeps SAVE10 and recalculates the discount", async () => {
+  const app = await start();
+  const request = client(app.base);
+  try {
+    await signIn(request);
+    await follow(request, "POST", "/cart/items", { sku: "headphones" });
+    await follow(request, "POST", "/cart/items", { sku: "keyboard" });
+    await follow(request, "POST", "/cart/promo", { promo: "SaVe10" });
+    const cart = await follow(request, "POST", "/cart/items/remove", { sku: "keyboard" });
+    assert.match(cart.text, /Wireless Headphones/);
+    assert.doesNotMatch(cart.text, /Mechanical Keyboard/);
+    assert.match(cart.text, /data-testid="applied-promo">SAVE10</);
+    assert.match(cart.text, /data-testid="subtotal">\$79\.00</);
+    assert.match(cart.text, /data-testid="discount-amount">\$7\.90</);
+    assert.match(cart.text, /data-testid="total-due">\$71\.10</);
+    assert.doesNotMatch(cart.text, /\$20\.80/);
+    assert.doesNotMatch(cart.text, /\$187\.20/);
+  } finally {
+    await app.close();
+  }
+});
+
+test("emptying the cart drops SAVE10 so the next item is full price", async () => {
+  const app = await start();
+  const request = client(app.base);
+  try {
+    await signIn(request);
+    await follow(request, "POST", "/cart/items", { sku: "headphones" });
+    await follow(request, "POST", "/cart/promo", { promo: "SAVE10" });
+    const emptied = await follow(request, "POST", "/cart/items/remove", { sku: "headphones" });
+    assert.match(emptied.text, /Your cart is empty/);
+    assert.doesNotMatch(emptied.text, /SAVE10/);
+    assert.doesNotMatch(emptied.text, /data-testid="promo-form"/);
+
+    await follow(request, "POST", "/cart/items", { sku: "headphones" });
+    const cart = await follow(request, "GET", "/cart");
+    assert.match(cart.text, /data-testid="promo-code" value=""/);
+    assert.doesNotMatch(cart.text, /data-testid="applied-promo"/);
+    assert.doesNotMatch(cart.text, /data-testid="discount-amount"/);
+    assert.doesNotMatch(cart.text, /\$7\.90/);
+    assert.doesNotMatch(cart.text, /\$71\.10/);
+    assert.match(cart.text, /data-testid="subtotal">\$79\.00</);
+    assert.match(cart.text, /data-testid="total-due">\$79\.00</);
+  } finally {
+    await app.close();
+  }
+});
+
+test("checkout and the confirmation show the same discounted total", async () => {
+  const app = await start();
+  const request = client(app.base);
+  try {
+    await signIn(request);
+    await follow(request, "POST", "/cart/items", { sku: "headphones" });
+    await follow(request, "POST", "/cart/items", { sku: "keyboard" });
+    await follow(request, "POST", "/cart/promo", { promo: "SAVE10" });
+
+    const checkout = await follow(request, "GET", "/checkout");
+    assert.match(checkout.text, /data-testid="subtotal">\$208\.00</);
+    assert.match(checkout.text, /data-testid="applied-promo">SAVE10</);
+    assert.match(checkout.text, /data-testid="discount-amount">\$20\.80</);
+    assert.match(checkout.text, /data-testid="total-due">\$187\.20</);
+    assert.match(checkout.text, /data-testid="place-order"/);
+
+    const confirmation = await follow(request, "POST", "/checkout", SHIPPING);
+    assert.equal(confirmation.status, 200);
+    assert.match(confirmation.text, /data-testid="order-confirmation"/);
+    assert.match(confirmation.text, /data-testid="order-number">KN-1001</);
+    assert.match(confirmation.text, /data-testid="applied-promo">SAVE10</);
+    assert.match(confirmation.text, /data-testid="discount-amount">\$20\.80</);
+    assert.match(confirmation.text, /data-testid="total-due">\$187\.20</);
+    assert.match(confirmation.text, /data-testid="cart-badge">0</);
+  } finally {
+    await app.close();
+  }
+});
+
 test("items can be removed until the cart is empty", async () => {
   const app = await start();
   const request = client(app.base);

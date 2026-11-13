@@ -4,9 +4,11 @@
  *
  *   npm run guard
  *
- * Starts the sample app when it is not already healthy, runs the four Kane
- * flows, writes kane-report.json and kane-report.md, and (when GITHUB_TOKEN
- * and PR_NUMBER are set) updates a single pull request comment.
+ * Starts the sample app when it is not already healthy, runs every
+ * kane-flows/*_test.md file, writes kane-report.json and kane-report.md,
+ * and (when GITHUB_TOKEN and PR_NUMBER are set) updates a single pull
+ * request comment. The fix-request comment uses KANE_FIX_TOKEN when that
+ * secret is set, so the author is a GitHub user rather than github-actions[bot].
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -19,16 +21,20 @@ import { createGitHub } from "./github.js";
 import { handoff } from "./handoff.js";
 import { runMockFlow } from "./mock-runner.js";
 import { formatComment, overallStatus, summarizeOne } from "./parse-results.mjs";
-import { loginIfConfigured, prependNpmBin, runKaneFlow, selectRunner } from "./runner.js";
+import { loginIfConfigured, missingKaneSecrets, prependNpmBin, runKaneFlow, selectRunner } from "./runner.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-const FLOW_FILES = [
-  "login_test.md",
-  "add-to-cart_test.md",
-  "checkout_test.md",
-  "empty-cart-guard_test.md",
-];
+export function listFlowFiles(flowsDir) {
+  return fs.readdirSync(flowsDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith("_test.md"))
+    .map((entry) => entry.name)
+    .sort();
+}
+
+export function tokenForFixComment(env) {
+  return nonempty(env.KANE_FIX_TOKEN) || nonempty(env.GITHUB_TOKEN);
+}
 
 export async function runGuard(env = process.env) {
   prependNpmBin(env);
@@ -42,7 +48,7 @@ export async function runGuard(env = process.env) {
   const reportMd = nonempty(env.KANE_REPORT_MD) || path.join(repoRoot, "kane-report.md");
   const fixPath = nonempty(env.KANE_FIX_REQUEST) || path.join(repoRoot, "kane-fix-request.md");
   const startedAt = new Date().toISOString();
-  const flows = FLOW_FILES.map((name) => path.join(flowsDir, name));
+  const flows = listFlowFiles(flowsDir).map((name) => path.join(flowsDir, name));
 
   let app;
   try {
@@ -55,6 +61,8 @@ export async function runGuard(env = process.env) {
   let runner;
   try {
     runner = await selectRunner(env);
+    const missing = missingKaneSecrets({ ...env, KANE_RUNNER: runner === "kane" ? "kane" : env.KANE_RUNNER });
+    if (missing) throw new Error(missing);
     if (runner === "kane") {
       const login = await loginIfConfigured(env, repoRoot);
       if (login.loggedIn) console.error(`kane-cli login ok\n${login.whoami}`);
@@ -101,6 +109,7 @@ export async function runGuard(env = process.env) {
   const status = overallStatus(summaries);
   const exitCode = statusToExit(status);
   const github = githubClient(env);
+  const fixGithub = fixGithubClient(env);
   const previous = await previousAttempt(github);
   const attempt = nextAttempt(previous);
 
@@ -156,10 +165,15 @@ export async function runGuard(env = process.env) {
     }));
     const body = buildFixRequest({ agent, attempt, maxAttempts, branch: env.PR_HEAD_REF || "", baseUrl, flows: failing });
     try {
+      if (fixGithub && nonempty(env.KANE_FIX_TOKEN)) {
+        console.error("Posting the fix request with KANE_FIX_TOKEN so the comment author is a GitHub user.");
+      } else if (fixGithub) {
+        console.error("Posting the fix request with GITHUB_TOKEN. github-actions[bot] comments are filtered by Cursor and do not start an agent. Set the KANE_FIX_TOKEN secret to a user PAT.");
+      }
       const result = await handoff({
         mode: nonempty(env.KANE_FIX_HANDOFF) || "comment",
         body,
-        github,
+        github: fixGithub,
         filePath: fixPath,
         report,
       });
@@ -168,8 +182,8 @@ export async function runGuard(env = process.env) {
     } catch (error) {
       console.error(`Fix handoff failed: ${error.message}`);
     }
-  } else if (status === "passed" && github) {
-    await clearFixComment(github, attempt);
+  } else if (status === "passed" && fixGithub) {
+    await clearFixComment(fixGithub, attempt);
   }
 
   appendBugLog(env, report);
@@ -177,9 +191,17 @@ export async function runGuard(env = process.env) {
 }
 
 function githubClient(env) {
-  if (!nonempty(env.GITHUB_TOKEN) || !nonempty(env.GITHUB_REPOSITORY) || !nonempty(env.PR_NUMBER)) return null;
+  return githubClientWith(env.GITHUB_TOKEN, env);
+}
+
+function fixGithubClient(env) {
+  return githubClientWith(tokenForFixComment(env), env);
+}
+
+function githubClientWith(token, env) {
+  if (!nonempty(token) || !nonempty(env.GITHUB_REPOSITORY) || !nonempty(env.PR_NUMBER)) return null;
   return createGitHub({
-    token: env.GITHUB_TOKEN,
+    token,
     repository: env.GITHUB_REPOSITORY,
     prNumber: env.PR_NUMBER,
   });
