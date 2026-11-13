@@ -48,6 +48,9 @@ async function checkFlow(name, baseUrl) {
   if (name === "add-to-cart_test.md") return checkCart(request);
   if (name === "checkout_test.md") return checkCheckout(request);
   if (name === "empty-cart-guard_test.md") return checkEmpty(request);
+  if (name === "promo-code_test.md") return checkPromo(request);
+  if (name === "promo-edge-cases_test.md") return checkPromoEdges(request);
+  if (name === "exploratory-cart_test.md") return checkExploratory(request);
   return miss(name, `No mock check for ${name}`);
 }
 
@@ -117,6 +120,99 @@ async function checkEmpty(request) {
     return miss("Checkout is blocked", "posting checkout with an empty cart placed an order");
   }
   return { ok: true, heading: "Checkout is blocked" };
+}
+
+async function checkPromo(request) {
+  await follow(request, "POST", "/login", USER);
+  await follow(request, "POST", "/cart/items", { sku: "headphones" });
+  await follow(request, "POST", "/cart/items", { sku: "keyboard" });
+  let cart = await follow(request, "GET", "/cart");
+  if (!cart.text.includes('data-testid="subtotal">$208.00<') || !cart.text.includes('data-testid="total-due">$208.00<')) {
+    return miss("Add two known items and read the subtotal", "cart subtotal was not $208.00 before a promo code");
+  }
+  cart = await follow(request, "POST", "/cart/promo", { promo: "BOGUS" });
+  if (!cart.text.includes("Invalid promo code.") || cart.text.includes('data-testid="discount-amount"') || !cart.text.includes('data-testid="total-due">$208.00<')) {
+    return miss("Invalid code BOGUS shows an error and does not change the total", "BOGUS changed the total or did not show an error");
+  }
+  cart = await follow(request, "POST", "/cart/promo", { promo: "SAVE10" });
+  if (!cart.text.includes('data-testid="discount-amount">$20.80<') || !cart.text.includes('data-testid="total-due">$187.20<') || !cart.text.includes('data-testid="applied-promo">SAVE10<')) {
+    return miss("Valid code SAVE10 takes 10% off", "SAVE10 did not discount $208.00 to $187.20");
+  }
+  const checkout = await follow(request, "GET", "/checkout");
+  if (!checkout.text.includes('data-testid="discount-amount">$20.80<') || !checkout.text.includes('data-testid="total-due">$187.20<')) {
+    return miss("Confirmation total matches the discounted checkout total", "checkout did not show the $187.20 discounted total");
+  }
+  const confirmation = await follow(request, "POST", "/checkout", SHIPPING);
+  if (!confirmation.text.includes('data-testid="order-number"') || !confirmation.text.includes('data-testid="discount-amount">$20.80<') || !confirmation.text.includes('data-testid="total-due">$187.20<')) {
+    return miss("Confirmation total matches the discounted checkout total", "confirmation did not show the SAVE10 discount and the $187.20 total");
+  }
+  return { ok: true, heading: "Confirmation total matches the discounted checkout total" };
+}
+
+async function checkPromoEdges(request) {
+  await follow(request, "POST", "/login", USER);
+  await follow(request, "POST", "/cart/items", { sku: "headphones" });
+  await follow(request, "POST", "/cart/items", { sku: "keyboard" });
+  let cart = await follow(request, "POST", "/cart/promo", { promo: "save10" });
+  if (!cart.text.includes('data-testid="applied-promo">SAVE10<') || !cart.text.includes('data-testid="total-due">$187.20<')) {
+    return miss("Lowercase save10 is accepted (case-insensitive)", "lowercase save10 was not accepted as SAVE10");
+  }
+  cart = await follow(request, "POST", "/cart/promo", { promo: "SAVE10" });
+  if (cart.text.includes("$41.60") || cart.text.includes("$166.40") || !cart.text.includes('data-testid="discount-amount">$20.80<') || !cart.text.includes('data-testid="total-due">$187.20<')) {
+    return miss("Applying SAVE10 a second time does not stack", "applying SAVE10 twice changed the 10% discount");
+  }
+  cart = await follow(request, "POST", "/cart/items/remove", { sku: "keyboard" });
+  if (!cart.text.includes('data-testid="applied-promo">SAVE10<') || !cart.text.includes('data-testid="discount-amount">$7.90<') || !cart.text.includes('data-testid="total-due">$71.10<')) {
+    return miss("Removing an item recalculates 10% of the new subtotal", "removing the keyboard did not recalculate SAVE10 to $7.90 off $79.00");
+  }
+  return { ok: true, heading: "Removing an item recalculates 10% of the new subtotal" };
+}
+
+async function checkExploratory(request) {
+  await follow(request, "POST", "/login", USER);
+  await follow(request, "POST", "/cart/items", { sku: "headphones" });
+  await follow(request, "POST", "/cart/items", { sku: "keyboard" });
+  let cart = await follow(request, "POST", "/cart/promo", { promo: " SAVE10 " });
+  if (!cart.text.includes('data-testid="discount-amount">$20.80<') || !cart.text.includes('data-testid="total-due">$187.20<')) {
+    return miss("Add two items, apply SAVE10 with surrounding spaces, and reload", "SAVE10 surrounded by spaces was not accepted");
+  }
+  cart = await follow(request, "GET", "/cart");
+  if (!cart.text.includes('data-testid="applied-promo">SAVE10<') || !cart.text.includes('data-testid="total-due">$187.20<')) {
+    return miss("Add two items, apply SAVE10 with surrounding spaces, and reload", "reloading the cart dropped SAVE10");
+  }
+  const products = await follow(request, "POST", "/cart/items", { sku: "headphones" });
+  if (!products.text.includes('data-testid="cart-badge">3<')) {
+    return miss("Increasing quantity recalculates the 10% discount", "cart badge did not show 3 after a second pair of headphones");
+  }
+  cart = await follow(request, "GET", "/cart");
+  if (!cart.text.includes('data-testid="subtotal">$287.00<') || !cart.text.includes('data-testid="discount-amount">$28.70<') || !cart.text.includes('data-testid="total-due">$258.30<')) {
+    return miss("Increasing quantity recalculates the 10% discount", "the extra headphones did not recalculate to $287.00, $28.70, and $258.30");
+  }
+  await follow(request, "POST", "/cart/items/remove", { sku: "headphones" });
+  const emptied = await follow(request, "POST", "/cart/items/remove", { sku: "keyboard" });
+  if (!emptied.text.includes("Your cart is empty") || !emptied.text.includes('data-testid="cart-badge">0<')) {
+    return miss("Emptying the cart blocks checkout with no negative total, and a new cart must not keep a hidden promo", "the cart was not empty after every item was removed");
+  }
+  if (/-\$/.test(emptied.text)) {
+    return miss("Emptying the cart blocks checkout with no negative total, and a new cart must not keep a hidden promo", "the empty cart showed a negative total");
+  }
+  const blocked = await follow(request, "GET", "/checkout");
+  if (!blocked.text.includes('data-testid="checkout-blocked"') || blocked.text.includes('data-testid="order-number"')) {
+    return miss("Emptying the cart blocks checkout with no negative total, and a new cart must not keep a hidden promo", "checkout was not blocked for the empty cart");
+  }
+  await follow(request, "POST", "/cart/items", { sku: "headphones" });
+  const fresh = await follow(request, "GET", "/cart");
+  const hidden = fresh.text.includes('data-testid="discount-amount"')
+    || fresh.text.includes("$7.90")
+    || fresh.text.includes("$71.10")
+    || !fresh.text.includes('data-testid="total-due">$79.00<');
+  if (hidden) {
+    return miss(
+      "Emptying the cart blocks checkout with no negative total, and a new cart must not keep a hidden promo",
+      "SAVE10 is still applied after the cart was emptied: a new headphones cart must total $79.00 with no $7.90 discount",
+    );
+  }
+  return { ok: true, heading: "Emptying the cart blocks checkout with no negative total, and a new cart must not keep a hidden promo" };
 }
 
 function miss(heading, remark) {
