@@ -1,0 +1,21 @@
+{
+  "name": "kane-pr-guard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Verify pull requests with Kane CLI and hand failures to a coding agent.",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node app/server.js",
+    "guard": "node guard/cli.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "yaml": "^2.8.0"
+  }
+}
