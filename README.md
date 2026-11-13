@@ -132,6 +132,9 @@ node guard/parse-results.mjs --markdown results/login/events.ndjson
 | `kane-flows/add-to-cart_test.md` | After sign-in, two items make the cart badge show 2 |
 | `kane-flows/checkout_test.md` | Shipping form, place order, confirmation with an order number |
 | `kane-flows/empty-cart-guard_test.md` | Empty cart blocks checkout and does not place an order |
+| `kane-flows/promo-code_test.md` | `BOGUS` is rejected, `SAVE10` takes 10% off, confirmation matches checkout |
+| `kane-flows/promo-edge-cases_test.md` | Lowercase `save10` is accepted, a second apply does not stack, removing an item recalculates |
+| `kane-flows/exploratory-cart_test.md` | Spaces, reload, quantity change, and a new cart after emptying must not keep a hidden promo |
 | `kane-flows/helpers/login.md` | Shared sign-in imported by the cart and checkout flows. Not an entry point |
 
 `npm test` covers the shop, the NDJSON parser, the comment body, the
