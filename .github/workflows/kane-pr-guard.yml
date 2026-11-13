@@ -1,0 +1,65 @@
+name: Kane PR Guard
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: kane-pr-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Google Chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Install the sample app
+        run: npm install
+
+      - name: Install Kane CLI
+        run: npm install -g @testmuai/kane-cli
+
+      - name: Run the guard
+        env:
+          BASE_URL: http://127.0.0.1:3000
+          KANE_RUNNER: kane
+          KANE_USERNAME: ${{ secrets.KANE_USERNAME }}
+          KANE_ACCESS_KEY: ${{ secrets.KANE_ACCESS_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_REF: ${{ github.head_ref }}
+          KANE_MAX_ATTEMPTS: ${{ vars.KANE_MAX_ATTEMPTS }}
+          KANE_FIX_AGENT: ${{ vars.KANE_FIX_AGENT }}
+        run: |
+          export PATH="$(npm prefix -g)/bin:$PATH"
+          npm run guard
+
+      - name: Upload the report, NDJSON, and failure screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kane-pr-guard-results
+          if-no-files-found: warn
+          include-hidden-files: true
+          path: |
+            kane-report.json
+            kane-report.md
+            kane-fix-request.md
+            results/
+            .testmuai/evidence/

@@ -1,0 +1,7 @@
+node_modules/
+results/
+.testmuai/
+kane-report.json
+kane-report.md
+kane-fix-request.md
+*.evidence
